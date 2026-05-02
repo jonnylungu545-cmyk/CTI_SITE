@@ -5,14 +5,17 @@ const { google } = require('googleapis');
 const { createClient } = require('@supabase/supabase-js');
 const fs = require('fs');
 const cors = require('cors');
+const path = require('path');
 
 const app = express();
 app.use(cors());
 app.use(express.json());
 
+// LINIA ASTA LIPSEA: Spune serverului să caute admin.html în folderul public
+app.use(express.static('public'));
+
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
 
-// Configurare Google Drive cu OAuth2 (Cont Personal 100GB)
 const oauth2Client = new google.auth.OAuth2(
     process.env.G_CLIENT_ID,
     process.env.G_CLIENT_SECRET
@@ -63,7 +66,7 @@ app.post('/upload-gallery', upload.array('photos'), async (req, res) => {
             if (fs.existsSync(file.path)) fs.unlinkSync(file.path);
         }
 
-        res.status(200).send("Succes! Pozele sunt acum în spațiul tău de 100GB.");
+        res.status(200).send("Succes! Pagina ta s-a încărcat și pozele merg în Drive.");
     } catch (error) {
         console.error("EROARE:", error);
         res.status(500).json({ error: error.message });

@@ -10,7 +10,7 @@ const cors = require('cors');
 const app = express();
 app.use(cors());
 app.use(express.json());
-app.use(express.static('public')); // Permite accesul la paginile HTML din folderul public
+app.use(express.static('public'));
 
 // 1. Configurare Supabase
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
@@ -22,23 +22,30 @@ const auth = new google.auth.GoogleAuth({
 });
 const drive = google.drive({ version: 'v3', auth });
 
-// 3. Configurare Multer pentru upload-uri temporare
-const upload = multer({ dest: '/tmp/' }); // Render permite scrierea temporară în /tmp/
+// 3. Configurare Multer (pentru fisiere temporare)
+const upload = multer({ dest: '/tmp/' });
 
-// RUTA ADMIN: Creare client și Upload poze
 app.post('/upload-gallery', upload.array('photos'), async (req, res) => {
     try {
         const { username, password } = req.body;
         const files = req.files;
 
-        // A. Creăm sau găsim clientul în Supabase
-        const { data: client, error: clientError } = await supabase
+        // A. Verificăm dacă clientul există, dacă nu, îl creăm (Rezolvă eroarea 23505)
+        let { data: client, error: clientError } = await supabase
             .from('clients')
-            .upsert({ username, password }) // Folosim upsert pentru simplitate
-            .select()
+            .select('*')
+            .eq('username', username)
             .single();
 
-        if (clientError) throw clientError;
+        if (!client) {
+            const { data: newClient, error: createError } = await supabase
+                .from('clients')
+                .insert({ username, password })
+                .select()
+                .single();
+            if (createError) throw createError;
+            client = newClient;
+        }
 
         // B. Urcăm fiecare poză în Google Drive
         for (const file of files) {
@@ -54,26 +61,27 @@ app.post('/upload-gallery', upload.array('photos'), async (req, res) => {
             const gFile = await drive.files.create({
                 resource: fileMetadata,
                 media: media,
-                fields: 'id, webViewLink',
+                fields: 'id',
+                supportsAllDrives: true, // IMPORTANT pentru eroarea de Storage Quota
+                keepRevisionForever: true
             });
 
-            // C. Salvăm link-ul pozei în Supabase legat de client
+            // C. Salvăm în Supabase
             await supabase.from('photos').insert({
                 client_id: client.id,
-                url: gFile.data.id, // Salvăm doar ID-ul pentru a genera link-uri de vizualizare mai târziu
+                url: gFile.data.id,
                 expires_at: new Date(Date.now() + 60 * 24 * 60 * 60 * 1000).toISOString()
             });
 
-            // Ștergem fișierul temporar
-            fs.unlinkSync(file.path);
+            if (fs.existsSync(file.path)) fs.unlinkSync(file.path);
         }
 
-        res.status(200).send("Galerie creată cu succes!");
+        res.status(200).send("Succes! Pozele au fost urcate.");
     } catch (error) {
-        console.error(error);
+        console.error("EROARE SERVER:", error);
         res.status(500).json({ error: error.message });
     }
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`Serverul rulează pe portul ${PORT}`));
+app.listen(PORT, () => console.log(`Server activ pe portul ${PORT}`));

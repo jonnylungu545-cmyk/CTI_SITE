@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="ro">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Galerie Foto Clienți</title>
+    <style>
+        body { font-family: sans-serif; text-align: center; background: #f4f4f9; }
+        .gallery { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 15px; padding: 20px; }
+        .gallery img { width: 100%; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        .search-box { margin: 20px; padding: 20px; background: white; display: inline-block; border-radius: 10px; }
+        input { padding: 10px; border: 1px solid #ccc; border-radius: 5px; }
+        button { padding: 10px 20px; background: #28a745; color: white; border: none; border-radius: 5px; cursor: pointer; }
+    </style>
+</head>
+<body>
+
+    <h1>Vizualizare Galerie</h1>
+
+    <div class="search-box">
+        <input type="text" id="username" placeholder="Introdu username client">
+        <button onclick="loadGallery()">Vezi Poze</button>
+    </div>
+
+    <div class="gallery" id="gallery">
+        <!-- Pozele vor apărea aici -->
+    </div>
+
+    <script>
+        async function loadGallery() {
+            const username = document.getElementById('username').value;
+            const galleryDiv = document.getElementById('gallery');
+            galleryDiv.innerHTML = "Se încarcă...";
+
+            try {
+                // Chemăm ruta de pe serverul tău Render
+                const response = await fetch(`/get-photos/${username}`);
+                const photos = await response.json();
+
+                if (photos.error) {
+                    galleryDiv.innerHTML = "Clientul nu a fost găsit.";
+                    return;
+                }
+
+                galleryDiv.innerHTML = "";
+                photos.forEach(photo => {
+                    const img = document.createElement('img');
+                    // Folosim link-ul de vizualizare directă de la Google Drive
+                    img.src = `https://lh3.googleusercontent.com/d/${photo.url}`;
+                    galleryDiv.appendChild(img);
+                });
+            } catch (err) {
+                galleryDiv.innerHTML = "Eroare la încărcarea pozelor.";
+            }
+        }
+    </script>
+</body>
+</html>

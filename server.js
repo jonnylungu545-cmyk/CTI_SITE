@@ -4,25 +4,25 @@ const multer = require('multer');
 const { google } = require('googleapis');
 const { createClient } = require('@supabase/supabase-js');
 const fs = require('fs');
-const path = require('path');
 const cors = require('cors');
 
 const app = express();
 app.use(cors());
 app.use(express.json());
-app.use(express.static('public'));
 
-// 1. Configurare Supabase
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_KEY);
 
-// 2. Configurare Google Drive
-const auth = new google.auth.GoogleAuth({
-    credentials: JSON.parse(process.env.GOOGLE_CONFIG_JSON),
-    scopes: ['https://www.googleapis.com/auth/drive.file'],
-});
-const drive = google.drive({ version: 'v3', auth });
+// Configurare Google Drive cu OAuth2 (Cont Personal 100GB)
+const oauth2Client = new google.auth.OAuth2(
+    process.env.G_CLIENT_ID,
+    process.env.G_CLIENT_SECRET
+);
 
-// 3. Configurare Multer (pentru fisiere temporare)
+oauth2Client.setCredentials({
+    refresh_token: process.env.G_REFRESH_TOKEN
+});
+
+const drive = google.drive({ version: 'v3', auth: oauth2Client });
 const upload = multer({ dest: '/tmp/' });
 
 app.post('/upload-gallery', upload.array('photos'), async (req, res) => {
@@ -30,43 +30,30 @@ app.post('/upload-gallery', upload.array('photos'), async (req, res) => {
         const { username, password } = req.body;
         const files = req.files;
 
-        // A. Verificăm dacă clientul există, dacă nu, îl creăm (Rezolvă eroarea 23505)
-        let { data: client, error: clientError } = await supabase
-            .from('clients')
-            .select('*')
-            .eq('username', username)
-            .single();
-
+        let { data: client } = await supabase.from('clients').select('*').eq('username', username).single();
         if (!client) {
-            const { data: newClient, error: createError } = await supabase
-                .from('clients')
-                .insert({ username, password })
-                .select()
-                .single();
-            if (createError) throw createError;
-            client = newClient;
+            const { data: nC, error: e } = await supabase.from('clients').insert({ username, password }).select().single();
+            if (e) throw e;
+            client = nC;
         }
 
-        // B. Urcăm fiecare poză în Google Drive
         for (const file of files) {
             const fileMetadata = {
                 name: file.originalname,
                 parents: [process.env.GOOGLE_DRIVE_FOLDER_ID],
             };
+            
             const media = {
                 mimeType: file.mimetype,
                 body: fs.createReadStream(file.path),
             };
 
             const gFile = await drive.files.create({
-                resource: fileMetadata,
+                requestBody: fileMetadata,
                 media: media,
-                fields: 'id',
-                supportsAllDrives: true, // IMPORTANT pentru eroarea de Storage Quota
-                keepRevisionForever: true
+                fields: 'id'
             });
 
-            // C. Salvăm în Supabase
             await supabase.from('photos').insert({
                 client_id: client.id,
                 url: gFile.data.id,
@@ -76,9 +63,9 @@ app.post('/upload-gallery', upload.array('photos'), async (req, res) => {
             if (fs.existsSync(file.path)) fs.unlinkSync(file.path);
         }
 
-        res.status(200).send("Succes! Pozele au fost urcate.");
+        res.status(200).send("Succes! Pozele sunt acum în spațiul tău de 100GB.");
     } catch (error) {
-        console.error("EROARE SERVER:", error);
+        console.error("EROARE:", error);
         res.status(500).json({ error: error.message });
     }
 });
